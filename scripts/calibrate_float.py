@@ -11,14 +11,21 @@ from optparse import OptionParser
 host = 'flux'
 password = "e=2.718"
 last_response = True
+ps_com ="/dev/com1"
+apf11_com="/dev/com2"
 
-ser_v = serial.Serial(port='/dev/ttyUSB0', baudrate=115200, bytesize=8,
-                      parity='N', stopbits=1, timeout=0.1, xonxoff=1,
-                      rtscts=0, dsrdtr=0)
+#ser_v = serial.Serial(port='/dev/ttyUSB0', baudrate=115200, bytesize=8,
+#                      parity='N', stopbits=1, timeout=0.1, xonxoff=1,
+#                      rtscts=0, dsrdtr=0)
 
 #ser_c = serial.Serial(port='/dev/ttyUSB1', baudrate=115200, bytesize=8,
 #                      parity='N', stopbits=1, timeout=0.1, xonxoff=1,
 #                      rtscts=0, dsrdtr=0)
+
+ser_float = None
+
+voltages = [15.0, 14.0, 13.0, 12.0, 11.0, 10.0, 9.0, 8.0, 7.0, 6.0, 5.0]
+resistance = [15, 30, 60, 120, 240, 480, 1000]
 
 def read_measurement(ser):
     ser.flushInput()
@@ -62,6 +69,8 @@ def decode_measurement(response):
         last_response = False
 
 def voltage_calibration(ps, file, floatnum, user):
+    ps_voltage_read = None
+
     timestr = time.strftime("%Y/%m/%d %H:%M:%S ")
     file.write('/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n')
     file.write(' * $Id: battery-calibration.')
@@ -96,6 +105,39 @@ def voltage_calibration(ps, file, floatnum, user):
     # Run Voltage Cal here
 
     file.write('}\n')
+
+    #ps.set_output_voltage(15.0)
+    #ps.enable_output(True)
+
+    ser_float = serial.Serial(port=apf11_com, baudrate=9600, bytesize=8,
+                      parity='N', stopbits=1, timeout=1, xonxoff=True)
+    
+    time.sleep(1)
+    ser_float.flush()
+    ser_float.write(b'c\r\n')
+    apf11_reading = ser_float.read_until(b' ] ')
+    apf11_split_1 = apf11_reading.decode('utf8').split('] ')[0].replace('Battery [','').replace(',','')
+    apf11_split_2 = apf11_split_1.split(' ')
+    counts = apf11_split_2[1].replace('cnt','')
+    float_v = apf11_split_2[2].replace('V','')
+    print(counts)
+    print(float_v)
+    ser_float.close()
+    sys.exit(0)
+
+    for voltage in voltages:
+        #ps.set_output_voltage(voltage)
+        time.sleep(1)
+        #ps_voltage_read = ps.get_output_voltage()
+        file.write('          ')
+        file.write(str(counts))
+        file.write('     ')
+        #file.write(str(float_v))
+        file.write(str(ps_voltage_read))
+        file.write('\r\n')
+
+    ps.enable_output(False)
+
     return
 
 def current_calibration(ps, file, floatnum, user):
@@ -177,7 +219,7 @@ def main(floatnum, user):
     
     # Open DP712
     ps = None
-    #ps = pydp700.PowerSupply(port="/dev/ttyUSB2")
+    #ps = pydp700.PowerSupply(port=ps_com)
 
     batt_filename = "battery-calibration." + str(floatnum)
     curr_filename = "current-calibration." + str(floatnum)
