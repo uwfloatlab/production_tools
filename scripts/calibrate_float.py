@@ -1,31 +1,33 @@
-import pydp700
+import dp700
 import datetime
 import sys
 import time
-import cv2
 import paramiko
 import os
 import serial
+import re
 from optparse import OptionParser
+from sklearn import linear_model
+import matplotlib.pyplot as plt
+import numpy as np
+from tqdm import tqdm
 
 host = 'flux'
 password = "e=2.718"
 last_response = True
-ps_com ="/dev/com1"
-apf11_com="/dev/com2"
+ps_com ="/dev/ttyUSB0"
+apf11_com="/dev/ttyS0"
 
-#ser_v = serial.Serial(port='/dev/ttyUSB0', baudrate=115200, bytesize=8,
-#                      parity='N', stopbits=1, timeout=0.1, xonxoff=1,
-#                      rtscts=0, dsrdtr=0)
-
-#ser_c = serial.Serial(port='/dev/ttyUSB1', baudrate=115200, bytesize=8,
-#                      parity='N', stopbits=1, timeout=0.1, xonxoff=1,
-#                      rtscts=0, dsrdtr=0)
+ser_dmm = serial.Serial(port='/dev/ttyUSB1', baudrate=115200, bytesize=8,
+                      parity='N', stopbits=1, timeout=0.1, xonxoff=1,
+                      rtscts=0, dsrdtr=0)
 
 ser_float = None
 
 voltages = [15.0, 14.0, 13.0, 12.0, 11.0, 10.0, 9.0, 8.0, 7.0, 6.0, 5.0]
-resistance = [15, 30, 60, 120, 240, 480, 1000]
+resistances = [15, 30, 60, 120, 240, 480, 1000]
+
+regr = linear_model.LinearRegression()
 
 def read_measurement(ser):
     ser.flushInput()
@@ -69,7 +71,9 @@ def decode_measurement(response):
         last_response = False
 
 def voltage_calibration(ps, file, floatnum, user):
-    ps_voltage_read = None
+    ps_voltage = None
+    measured_counts = []
+    measured_voltages = []
 
     timestr = time.strftime("%Y/%m/%d %H:%M:%S ")
     file.write('/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n')
@@ -100,47 +104,89 @@ def voltage_calibration(ps, file, floatnum, user):
     file.write('Calibration battery-voltage-apex-')
     file.write(str(floatnum))
     file.write('\n{\n')
-    file.write('//     counts  voltage ( Fluke Mulitimeter used for voltage readings )\n')
+    file.write('//     counts  voltage ( DP712 Power Supply used for voltage readings )\n')
     
-    # Run Voltage Cal here
-
-    file.write('}\n')
-
-    #ps.set_output_voltage(15.0)
-    #ps.enable_output(True)
+    ps.set_output_voltage(15.0)
+    ps.enable_output(True)
 
     ser_float = serial.Serial(port=apf11_com, baudrate=9600, bytesize=8,
                       parity='N', stopbits=1, timeout=1, xonxoff=True)
-    
-    time.sleep(1)
-    ser_float.flush()
-    ser_float.write(b'c\r\n')
-    apf11_reading = ser_float.read_until(b' ] ')
-    apf11_split_1 = apf11_reading.decode('utf8').split('] ')[0].replace('Battery [','').replace(',','')
-    apf11_split_2 = apf11_split_1.split(' ')
-    counts = apf11_split_2[1].replace('cnt','')
-    float_v = apf11_split_2[2].replace('V','')
-    print(counts)
-    print(float_v)
-    ser_float.close()
-    sys.exit(0)
 
-    for voltage in voltages:
-        #ps.set_output_voltage(voltage)
+    input("Reset the Apf11. Then, press Enter to continue...")
+    time.sleep(7)
+
+    for i in tqdm(range(len(voltages))):
+        voltage = voltages[i]
+        ps.set_output_voltage(voltage)
         time.sleep(1)
-        #ps_voltage_read = ps.get_output_voltage()
+        ps_voltage = ps.get_output_voltage()
+        ser_float.flush()
+        ser_float.write(b'c\r\n')
+        time.sleep(1)
+        apf11_reading = ser_float.read_until(b'Current')
+        splits = apf11_reading.decode("utf-8").split("Battery [",1)[1].split("]")[0].replace(' ','').split(",")
+        counts = splits[0].replace('cnt','')
+        float_v = splits[1].replace('V','')
         file.write('          ')
+        for i in range(3 - len(str(counts))):
+            file.write(' ')
         file.write(str(counts))
-        file.write('     ')
-        #file.write(str(float_v))
-        file.write(str(ps_voltage_read))
+        measured_counts.append(int(counts))
+        file.write('   ')
+        for i in range(6 - len(str(ps_voltage))):
+            file.write(' ')
+        file.write(str(ps_voltage))
+        measured_voltages.append(float(ps_voltage))
         file.write('\r\n')
 
     ps.enable_output(False)
+    ser_float.close()
+
+    coef,(SSE,), *_ = np.polyfit(measured_counts, measured_voltages, 1, full=True)
+    poly1d_fn = np.poly1d(coef)
+
+    plt.plot(measured_counts,measured_voltages, 'bo', measured_counts, poly1d_fn(measured_counts), '--k')
+    plt.title('Float ' + str(floatnum) + ' Voltage Linear Regression')
+    plt.xlabel('Voltage ADC Reading (counts)')
+    plt.ylabel('Voltage Fluke Reading (V)')
+    plt.show()
+
+    while True:
+        answer = input("Does this regression look ok? [yes/no] ")
+        if answer == 'yes':
+            break
+        elif answer == 'no':
+            print("Please check the test automation setup and try again")
+            file.close()
+            sys.exit(1)
+        else:
+            print("Please enter yes or no.")
+
+    plt.savefig('battery-calibration-' + str(floatnum) + '.png', bbox_inches='tight')
+
+    file.write('/*\r\n')
+    file.write('\n$ Polynomial form: f(x) = (A0 + x(A1 + x(A2 + x(A3 + ... + x(An)))))\r\n')
+    file.write('$ Polynomial order = 1\r\n')
+    file.write('$ Number of data points used in fit = ')
+    file.write(str(len(measured_counts)))
+    file.write('\r\n')
+    file.write('$ Sum of Square Residual Error = ' + str(SSE) +'\r\n')
+    file.write('$ A0 = ' + str(coef[0]) + '\r\n')
+    file.write('$ A1 = ' + str(coef[1]) + '\r\n')
+    file.write('$\r\n')
+    file.write('$ #             x             y          f(x)      y - f(x)\r\n')
+
+    file.write('$\r\n')
+    file.write('$ End of Stream\r\n')
+    file.write('*/\r\n')
+    file.write('}\n')
 
     return
 
 def current_calibration(ps, file, floatnum, user):
+    ps_voltage = None
+    dmm_current = None
+
     timestr = time.strftime("%Y/%m/%d %H:%M:%S ")
     file.write('/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n')
     file.write(' * $Id: current-calibration.')
@@ -170,9 +216,74 @@ def current_calibration(ps, file, floatnum, user):
     file.write('Calibration Current-apex-')
     file.write(str(floatnum))
     file.write('\n{\n')
-    file.write('//  counts  current(Fluke ma) // Current(Float ma) // voltage(fluke) voltage(float)  switch\n')
+    file.write('//  counts  current(Fluke ma) // Current(Float ma) // voltage(DP712) voltage(float)  switch\n')
     
     # Run Current Cal here
+    ps.set_output_voltage(15.0)
+    ps.enable_output(True)
+
+    ser_float = serial.Serial(port=apf11_com, baudrate=9600, bytesize=8,
+                      parity='N', stopbits=1, timeout=1, xonxoff=True)
+
+    input("Reset the Apf11 and power on the Fluke DMM. Then, press Enter to continue...")
+    time.sleep(7)
+
+    for i in tqdm(range(len(voltages))):
+        voltage = voltages[i]
+        for resistance in resistances: 
+            ps.set_output_voltage(voltage)
+            ps_voltage = ps.get_output_voltage()
+            ser_float.flush()
+            ser_float.write(b'c\r\n')
+            time.sleep(1)
+            apf11_reading = ser_float.read_until(b'Barometer')
+            splits = apf11_reading.decode("utf-8").split("Battery [",1)[1].split("]")
+            voltage_reading = splits[0].replace(' ','').split(",")
+            current_reading = splits[1].split("Current [",1)[1].split("]")[0].replace(' ','').split(",")
+            #batt_counts = voltage_reading[0].replace('cnt','')
+            batt_float = voltage_reading[1].replace('V','')
+            current_counts = current_reading[0].replace('cnt','')
+            current_float = current_reading[1].replace('mA','')
+
+            dmm_current = decode_measurement(read_measurement(ser_dmm))
+
+            if dmm_current == None:
+                print("Unable to communicate with Fluke. Please make sure the DMM is on")
+                sys.exit(1)
+            
+            file.write('     ')
+            for i in range(3 - len(str(current_counts))):
+                file.write(' ')
+            file.write(str(current_counts))
+
+            file.write('    ')
+            for i in range(6 - len(str(dmm_current))):
+                file.write(' ')
+            file.write(str(dmm_current))
+
+            file.write('            // ')
+            for i in range(6 - len(str(current_float))):
+                file.write(' ')
+            file.write(str(current_float))
+
+            file.write('               ')
+            for i in range(6 - len(str(ps_voltage))):
+                file.write(' ')
+            file.write(str(ps_voltage))
+
+            file.write('          ')
+            for i in range(4 - len(str(batt_float))):
+                file.write(' ')
+            file.write(str(batt_float))
+
+            file.write('            ')
+            for i in range(4 - len(str(resistance))):
+                file.write(' ')
+            file.write(str(resistance))
+            file.write('\r\n')
+
+    ps.enable_output(False)
+    ser_float.close()
 
     file.write('}\n')
     return
@@ -218,10 +329,11 @@ def main(floatnum, user):
     print("Apex Calibration Automation Script")
     
     # Open DP712
-    ps = None
-    #ps = pydp700.PowerSupply(port=ps_com)
+    #ps = None
+    ps = dp700.PowerSupply(port=ps_com)
 
     batt_filename = "battery-calibration." + str(floatnum)
+    batt_image_filename = "battery-calibration-" + str(floatnum) + ".png"
     curr_filename = "current-calibration." + str(floatnum)
     vac_filename = "vacuum-calibration." + str(floatnum)
 
@@ -237,9 +349,9 @@ def main(floatnum, user):
     batt_f.close()
     curr_f.close()
     vac_f.close()
-    sys.exit(0)
 
     flux_batt_file = "/net/alace/" + str(floatnum) + "/" + batt_filename
+    flux_batt_image = "/net/alace/" + str(floatnum) + "/"  + batt_image_filename
     flux_curr_file = "/net/alace/" + str(floatnum) + "/" + curr_filename
     flux_vac_file = "/net/alace/" + str(floatnum) + "/" + vac_filename
     username = "f" + str(floatnum)
@@ -249,6 +361,7 @@ def main(floatnum, user):
     ssh.connect(host, username=username, password=password)
     sftp = ssh.open_sftp()
     sftp.put(batt_filename, flux_batt_file)
+    sftp.put(batt_image_filename, flux_batt_image)
     sftp.put(curr_filename, flux_curr_file)
     sftp.put(vac_filename, flux_vac_file)
     sftp.close()
