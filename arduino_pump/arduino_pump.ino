@@ -27,24 +27,6 @@ int pump_direction = 3;         // pin used to change Lee pump direction with EZ
 const int Pump_Volume = 2750;             // 3000 uL pump but used 2750 in case it gets powered off at full fill
 const int Pump_Steps = 8 * Pump_Volume;   // eight step resolution - both EZ inch dip switches must be in off position
 
-
-void setup() {
-  // put your setup code here, to run once:
-
-  Serial.begin(9600);
-
-  pinMode(pump_pulse, OUTPUT);        // declare Pump_pulse as output
-  pinMode(pump_direction, OUTPUT);    // declare Pump_direction as output
-
-  Home_Pump();
-
-}
-
-void loop() {
-  // put your main code here, to run repeatedly:
-  Fill_And_Dispense_Pump():
-
-}
 //--------------------------------------------------------------------------------
 // function creation
 
@@ -66,13 +48,13 @@ void Home_Pump() {
   digitalWrite(pump_direction, HIGH);  //out direction
   Serial.println("going to pump out");
   sensorValue = analogRead(A1);        // read position sensor
-  Serial.println("START")
-  Serial.println(sensorValue)
+  Serial.println("START");
+  Serial.println(sensorValue);
   do {
     digitalWrite(pump_pulse, HIGH);
-    delayMicrosectonds(500);
+    delayMicroseconds(500);
     digitalWrite(pump_pulse, LOW);
-    delayMicrosectonds(7000);
+    delayMicroseconds(7000);
     sensorValue = analogRead(A1);        // read position sensor
     Serial.println(sensorValue);
   } while (sensorValue > 100);
@@ -83,7 +65,7 @@ void Home_Pump() {
 
 //--
 
-void Fill_And_Dispense_pump (){
+void Fill_And_Dispense_Pump(){
   // Repeated code to fill and dispense the set amount of water at set fill and pump rates
 
   // fill part of program
@@ -104,7 +86,7 @@ void Fill_And_Dispense_pump (){
   do{
     digitalWrite(pump_pulse, HIGH);
     delayMicroseconds(500);
-    digitalWrite(pump_pulse, LOW)
+    digitalWrite(pump_pulse, LOW);
     delayMicroseconds(Dispense_LowPulse);
     sensorValue = analogRead(A1);            // read position sensor
     Serial.println(sensorValue);
@@ -112,3 +94,22 @@ void Fill_And_Dispense_pump (){
   delay (1000);
 
 }
+
+void setup() {
+  // put your setup code here, to run once:
+
+  Serial.begin(9600);
+
+  pinMode(pump_pulse, OUTPUT);        // declare Pump_pulse as output
+  pinMode(pump_direction, OUTPUT);    // declare Pump_direction as output
+
+  Home_Pump();
+
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+  Fill_And_Dispense_Pump();
+
+}
+
