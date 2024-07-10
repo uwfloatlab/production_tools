@@ -31,14 +31,84 @@ const int Pump_Steps = 8 * Pump_Volume;   // eight step resolution - both EZ inc
 void setup() {
   // put your setup code here, to run once:
 
-  
+  Serial.begin(9600);
 
+  pinMode(pump_pulse, OUTPUT);        // declare Pump_pulse as output
+  pinMode(pump_direction, OUTPUT);    // declare Pump_direction as output
 
-
+  Home_Pump();
 
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
+  Fill_And_Dispense_Pump():
+
+}
+//--------------------------------------------------------------------------------
+// function creation
+
+void Home_Pump() {
+  // Sets pump to all the way down so that it can pump a standardized amount for other pumps
+
+  int sensorValue;
+  digitalWrite(pump_direction, LOW);   //fill pump direction in
+  Serial.println("Filling Pump a little bit");
+  for(int k = 1; k<2000; k++)    // 250ul
+  {
+    //Serial.println("Filling pump a little bit");
+    digitalWrite(pump_pulse, HIGH);
+    delayMicroseconds(500);
+    digitalWrite(pump_pulse, LOW);
+    delayMicroseconds(7000);
+  }
+
+  digitalWrite(pump_direction, HIGH);  //out direction
+  Serial.println("going to pump out");
+  sensorValue = analogRead(A1);        // read position sensor
+  Serial.println("START")
+  Serial.println(sensorValue)
+  do {
+    digitalWrite(pump_pulse, HIGH);
+    delayMicrosectonds(500);
+    digitalWrite(pump_pulse, LOW);
+    delayMicrosectonds(7000);
+    sensorValue = analogRead(A1);        // read position sensor
+    Serial.println(sensorValue);
+  } while (sensorValue > 100);
+  delay(1000);
+  Serial.println("Pump is home");
+
+}
+
+//--
+
+void Fill_And_Dispense_pump (){
+  // Repeated code to fill and dispense the set amount of water at set fill and pump rates
+
+  // fill part of program
+  for (int m=1; m<= Pump_Steps; m++)
+  {
+    digitalWrite(pump_direction, LOW);   //fill pump direction (in)
+    digitalWrite(pump_pulse, HIGH);
+    delayMicroseconds(500);
+    digitalWrite(pump_pulse, LOW);
+    delayMicroseconds(Fill_LowPulse);
+
+  }
+  delay(1000);
+  //dispense part of program
+  int sensorValue;
+  digitalWrite(pump_direction, HIGH);      // out direction
+  sensorValue = analogRead(A1);            // read position sensor
+  do{
+    digitalWrite(pump_pulse, HIGH);
+    delayMicroseconds(500);
+    digitalWrite(pump_pulse, LOW)
+    delayMicroseconds(Dispense_LowPulse);
+    sensorValue = analogRead(A1);            // read position sensor
+    Serial.println(sensorValue);
+  } while (sensorValue > 100);
+  delay (1000);
 
 }
