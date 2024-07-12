@@ -190,6 +190,8 @@ def voltage_calibration(ps, file, floatnum, user):
 def current_calibration(ps, file, floatnum, user):
     ps_voltage = None
     dmm_current = None
+    measured_counts = []
+    measured_currents = []
 
     timestr = time.strftime("%Y/%m/%d %H:%M:%S ")
     file.write('/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n')
@@ -263,11 +265,13 @@ def current_calibration(ps, file, floatnum, user):
             file.write('     ')
             for i in range(3 - len(str(current_counts))):
                 file.write(' ')
+            measured_counts.append(int(current_counts))
             file.write(str(current_counts))
 
             file.write('    ')
             for i in range(6 - len(str(dmm_current))):
                 file.write(' ')
+            measured_currents.append(float(dmm_current))
             file.write(str(dmm_current))
 
             file.write('            // ')
@@ -295,7 +299,45 @@ def current_calibration(ps, file, floatnum, user):
     ps.enable_output(False)
     ser_float.close()
 
+    coef,(SSE,), *_ = np.polyfit(measured_counts, measured_currents, 1, full=True)
+    poly1d_fn = np.poly1d(coef)
+
+    plt.plot(measured_counts,measured_currents, 'bo', measured_counts, poly1d_fn(measured_counts), '--k')
+    plt.title('Float ' + str(floatnum) + ' Current Linear Regression')
+    plt.xlabel('Current ADC Reading (counts)')
+    plt.ylabel('Current Fluke Reading (mA)')
+    plt.show()
+
+    while True:
+        answer = input("Does this regression look ok? [yes/no] ")
+        if answer == 'yes':
+            break
+        elif answer == 'no':
+            print("Please check the test automation setup and try again")
+            file.close()
+            sys.exit(1)
+        else:
+            print("Please enter yes or no.")
+
+    plt.savefig('current-calibration-' + str(floatnum) + '.png', bbox_inches='tight')
+
+    file.write('/*\r\n')
+    file.write('\n$ Polynomial form: f(x) = (A0 + x(A1 + x(A2 + x(A3 + ... + x(An)))))\r\n')
+    file.write('$ Polynomial order = 1\r\n')
+    file.write('$ Number of data points used in fit = ')
+    file.write(str(len(measured_counts)))
+    file.write('\r\n')
+    file.write('$ Sum of Square Residual Error = ' + str(SSE) +'\r\n')
+    file.write('$ A0 = ' + str(coef[0]) + '\r\n')
+    file.write('$ A1 = ' + str(coef[1]) + '\r\n')
+    file.write('$\r\n')
+    file.write('$ #             x             y          f(x)      y - f(x)\r\n')
+
+    file.write('$\r\n')
+    file.write('$ End of Stream\r\n')
+    file.write('*/\r\n')
     file.write('}\n')
+    
     return
 
 def vacuum_calibration(ps, file, floatnum, user):
@@ -345,6 +387,7 @@ def main(floatnum, user):
     batt_filename = "battery-calibration." + str(floatnum)
     batt_image_filename = "battery-calibration-" + str(floatnum) + ".png"
     curr_filename = "current-calibration." + str(floatnum)
+    curr_image_filename = "current-calibration-" + str(floatnum) + ".png"
     vac_filename = "vacuum-calibration." + str(floatnum)
 
     batt_f = open(batt_filename, 'w+')
@@ -363,6 +406,7 @@ def main(floatnum, user):
     flux_batt_file = "/net/alace/" + str(floatnum) + "/" + batt_filename
     flux_batt_image = "/net/alace/" + str(floatnum) + "/"  + batt_image_filename
     flux_curr_file = "/net/alace/" + str(floatnum) + "/" + curr_filename
+    flux_curr_image = "/net/alace/" + str(floatnum) + "/" + curr_image_filename
     flux_vac_file = "/net/alace/" + str(floatnum) + "/" + vac_filename
     username = "f" + str(floatnum)
 
@@ -373,6 +417,7 @@ def main(floatnum, user):
     sftp.put(batt_filename, flux_batt_file)
     sftp.put(batt_image_filename, flux_batt_image)
     sftp.put(curr_filename, flux_curr_file)
+    sftp.put(curr_image_filename, flux_curr_image)
     sftp.put(vac_filename, flux_vac_file)
     sftp.close()
     ssh.close()
