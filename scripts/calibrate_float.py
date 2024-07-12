@@ -22,6 +22,10 @@ ser_dmm = serial.Serial(port='/dev/ttyUSB1', baudrate=115200, bytesize=8,
                       parity='N', stopbits=1, timeout=0.1, xonxoff=1,
                       rtscts=0, dsrdtr=0)
 
+ser_arduino = serial.Serial(port='/dev/ttyUSB2', baudrate=9600, bytesize=8,
+                            parity='N', stopbits=1, timeout=0.1, xonxoff=1,
+                            rtscts=0, dsrdtr=0)
+
 ser_float = None
 
 voltages = [15.0, 14.0, 13.0, 12.0, 11.0, 10.0, 9.0, 8.0, 7.0, 6.0, 5.0]
@@ -230,12 +234,17 @@ def current_calibration(ps, file, floatnum, user):
 
     for i in tqdm(range(len(voltages))):
         voltage = voltages[i]
-        for resistance in resistances: 
+        for j in range(len(resistances)):
+            resistance = resistances[j]
+            ser_arduino.write(str(j).encode())
             ps.set_output_voltage(voltage)
             ps_voltage = ps.get_output_voltage()
             ser_float.flush()
+            for k in range(10):
+                ser_float.write(b'c\r\n')
+                time.sleep(1)
+            ser_float.read_all()
             ser_float.write(b'c\r\n')
-            time.sleep(1)
             apf11_reading = ser_float.read_until(b'Barometer')
             splits = apf11_reading.decode("utf-8").split("Battery [",1)[1].split("]")
             voltage_reading = splits[0].replace(' ','').split(",")
@@ -282,6 +291,7 @@ def current_calibration(ps, file, floatnum, user):
             file.write(str(resistance))
             file.write('\r\n')
 
+    ser_arduino.write("off\r\n".encode())
     ps.enable_output(False)
     ser_float.close()
 
